@@ -1,16 +1,18 @@
 #!/usr/bin/python
 
 from BitcoinMiner import *
-from optparse import OptionGroup, OptionParser
+from optparse import Option, OptionGroup, OptionParser
+from copy import copy
 from time import sleep
 import HttpTransport
 import pyopencl as cl
 import socket
+import signal
 
 # Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
-realsocket = socket.socket
+socket.realsocket = socket.socket
 def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
-	sockobj = realsocket(family, type, proto)
+	sockobj = socket.realsocket(family, type, proto)
 	sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 	sockobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 	return sockobj
@@ -18,10 +20,23 @@ socket.socket = socketwrap
 
 VERSION = '20110709'
 
+def check_hostport(option, opt, value):
+	try:
+		( host, port ) = value.split( ":" )
+		return ( host, int( port ))
+	except:
+		raise OptionValueError( "option %s: invalid host or port value [%r]." % ( opt, value ))
+
+class SocketOption(Option):
+	TYPES = Option.TYPES + ( "hostport", )
+	TYPE_CHECKER = copy( Option.TYPE_CHECKER )
+	TYPE_CHECKER[ "hostport" ] = check_hostport
+
 usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats   (optional)"
-parser = OptionParser(version=VERSION, usage=usage)
+parser = OptionParser(option_class=SocketOption, version=VERSION, usage=usage)
 parser.add_option('--verbose',        dest='verbose',    action='store_true', help='verbose output, suitable for redirection to log file')
 parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')
+parser.add_option("-k", "--socket", action="store", type="hostport", dest="socketaddress", help="the host:port of socket", default=None)
 
 group = OptionGroup(parser, "Miner Options")
 group.add_option('-r', '--rate',      dest='rate',       default=1,           help='hash rate display interval in seconds, default=1 (60 with --verbose)', type='float')
@@ -61,6 +76,12 @@ if (options.device == -1 or options.device >= len(devices)):
 	for i in xrange(len(devices)):
 		print '[%d]\t%s' % (i, devices[i].name)
 	sys.exit()
+
+
+def signal_received(signum,stack):
+	raise KeyboardInterrupt
+
+signal.signal(signal.SIGTERM, signal_received)
 
 miner = None
 try:

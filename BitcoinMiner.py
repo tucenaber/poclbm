@@ -9,7 +9,7 @@ from time import sleep, time
 from util import *
 import log
 import pyopencl as cl
-
+from socketlogger import SocketLogger
 
 class BitcoinMiner():
 	def __init__(self, device, options, version, transport):
@@ -32,6 +32,7 @@ class BitcoinMiner():
 		self.transport = transport(self)
 		log.verbose = self.options.verbose
 		log.quiet = self.options.quiet
+		self.socklog = SocketLogger(self, self.options.socketaddress)
 
 	def start(self):
 		self.should_stop = False
@@ -49,6 +50,7 @@ class BitcoinMiner():
 		total_shares = self.share_count[1] + self.share_count[0]
 		total_shares_estimator = max(total_shares, total_shares, 1)
 		say_quiet('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (rate, round(estimated_rate), self.share_count[0], total_shares, float(self.share_count[0]) * 100 / total_shares_estimator))
+		self.socklog.updateStatus(rate)
 
 	def diff1_found(self, hash, target):
 		if self.options.verbose and target < 0xFFFF0000L:
@@ -58,6 +60,7 @@ class BitcoinMiner():
 		self.share_count[if_else(accepted, 1, 0)] += 1
 		if self.options.verbose or is_block:
 			say_line('%s%s, %s', (if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
+		self.socklog.reportFound(hash, accepted)
 
 	def mining_thread(self):
 		self.load_kernel()
@@ -75,7 +78,7 @@ class BitcoinMiner():
 
 		work = None
 		while True:
-		        sleep(self.options.frameSleep)
+			sleep(self.options.frameSleep)
 			if self.should_stop: return
 			if (not work) or (not self.work_queue.empty()):
 				try:
